@@ -11,10 +11,11 @@ API REST de controle de estoque construída com Flask, com autenticação, autor
 - **Autorização por cargo** — decorator customizado (`@requer_cargo`) restringe rotas por `admin`/`operador`
 - **Movimentação de estoque** — entrada e saída, com validação de estoque disponível e transação atômica (histórico + quantidade atualizados juntos)
 - **Relatório de faturamento** — gerado com Pandas, exportado como arquivo `.xlsx` (via Openpyxl), filtrável por período
+- **Agente de IA (chat)** — assistente conversacional (LangChain + Streamlit) que executa as mesmas operações da API em linguagem natural (criar produto, registrar movimentação, gerar relatório, etc.), reaproveitando a camada de `services` como ferramentas do agente
 
 ## Tecnologias
 
-Flask · SQLAlchemy · Pydantic · Flask-JWT-Extended · Flask-Migrate (Alembic) · Flask-Limiter · Pandas · Openpyxl · pytest
+Flask · SQLAlchemy · Pydantic · Flask-JWT-Extended · Flask-Migrate (Alembic) · Flask-Limiter · Pandas · Openpyxl · pytest · LangChain · Streamlit · OpenAI
 
 ## Arquitetura
 
@@ -26,6 +27,7 @@ O projeto segue uma separação em camadas:
 - **`routes/`** — só sabem "HTTP": recebem a requisição, chamam o service, e traduzem o resultado em status code + JSON
 - **`exceptions.py`** — exceções customizadas (`RecursoNaoEncontrado`, `ConflitoDeRecurso`) para diferenciar respostas `404` de `409`
 - **`auth.py`** — decorator de autorização por cargo, usado nas rotas protegidas
+- **`agente/agente.py`** — assistente de chat (LangChain + Streamlit); cada ferramenta do agente é uma camada fina em volta de uma função já existente em `services/`, sem duplicar regra de negócio
 
 ```
 app/
@@ -50,6 +52,8 @@ app/
     relatorio_rota.py
     login.py
   tests/
+agente/
+  agente.py
 run.py
 seed_admin.py
 ```
@@ -78,6 +82,19 @@ python3 seed_admin.py
 python3 run.py
 ```
 O servidor sobe em `http://127.0.0.1:5001`.
+
+### Agente de IA (chat)
+
+Além da API, dá pra conversar com um assistente que executa as mesmas operações via linguagem natural.
+
+```bash
+# adicione sua chave da OpenAI em app/.env
+echo "OPENAI_API_KEY=sua-chave-aqui" >> app/.env
+
+# rode a partir da raiz do projeto
+PYTHONPATH=. streamlit run agente/agente.py
+```
+Abre em `http://localhost:8501`. Faz login com o mesmo usuário admin do `seed_admin.py`, e pede coisas como "cria uma categoria chamada Ferramentas" ou "lista os produtos".
 
 ## Endpoints principais
 
@@ -117,8 +134,12 @@ pytest app/tests -v
 - **Autenticação via cookie + CSRF, em vez de token no header**: escolhi cookies `HttpOnly` pra evitar que o token JWT fosse acessível via JavaScript (proteção contra XSS), o que exigiu adicionar proteção CSRF, já que cookies são enviados automaticamente pelo navegador em qualquer requisição.
 - **`quantidade_estoque` é um campo armazenado, não calculado**: decidi atualizar esse campo diretamente a cada movimentação (em vez de somar o histórico toda vez), priorizando performance de leitura — o painel administrativo consulta produtos com muito mais frequência do que movimentações são registradas.
 - **`preco_unitario` só é salvo em movimentações de saída**: representa o preço de venda no momento da transação, usado no relatório de faturamento. Entradas de estoque não têm esse conceito (são custo, não receita).
+- **As ferramentas do agente de IA reaproveitam os `services`, não duplicam regra de negócio**: cada tool é só uma casca fina (valida entrada, chama o service, converte o resultado em texto) — a mesma separação em camadas que viabiliza a API também viabiliza o agente, sem reescrever nada.
+- **`usuario_id` no agente vem de uma closure, não de parâmetro que o modelo preenche**: a ferramenta de movimentação é criada por uma função fábrica (`criar_tool_registrar_movimentacao(usuario_id)`) que já "fixa" o usuário logado — o LLM nunca vê nem escolhe esse valor, evitando que a conversa seja usada pra forjar ações em nome de outro usuário.
 
 
 ## Autor
 
-Matheus — [LinkedIn](#) · [GitHub](https://github.com/matheusrenatovivanmendes-arch)
+Matheus — [LinkedIn](https://www.linkedin.com/in/matheus-renato-vivan-mendes-22b863394?utm_source=share_via&utm_content=profile&utm_medium=member_android) · 
+
+        [GitHub](https://github.com/matheusrenatovivanmendes-arch)
